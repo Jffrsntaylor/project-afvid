@@ -1,0 +1,2 @@
+"""AFVID core package."""
+
