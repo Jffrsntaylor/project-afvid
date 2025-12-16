@@ -26,7 +26,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.append(str(SRC_DIR))
 
 import config
-from detector import AFVIDDetector, Detection
+from detector import AFVIDDetector, PredictionResult
 
 
 @st.cache_resource
@@ -52,37 +52,69 @@ def decode_image(file_bytes: bytes) -> np.ndarray:
     return image
 
 
-def render_detection_log(detections: List[Detection], frame_idx: int | str) -> List[dict]:
+def render_detection_log(result: PredictionResult, frame_idx: int | str, show_ignored: bool) -> List[dict]:
     log_rows = []
-    for det in detections:
+    for det in result.detections:
         log_rows.append(
             {
                 "frame_or_time": frame_idx,
+                "mode": det.mode,
+                "raw_class": det.raw_class_name,
+                "mapped_class": det.mapped_class_name,
                 "object": det.metadata.display_name,
                 "category": det.metadata.category,
                 "nation": det.metadata.nation_of_origin,
                 "threat_status": det.metadata.threat_status,
                 "confidence": f"{det.confidence * 100:.1f}%",
+                "status": "kept",
             }
         )
+    if show_ignored:
+        for det in result.ignored:
+            log_rows.append(
+                {
+                    "frame_or_time": frame_idx,
+                    "mode": det.mode,
+                    "raw_class": det.raw_class_name,
+                    "mapped_class": None,
+                    "object": "",
+                    "category": "",
+                    "nation": "",
+                    "threat_status": "",
+                    "confidence": f"{det.confidence * 100:.1f}%",
+                    "status": f"ignored: {det.reason}",
+                }
+            )
     return log_rows
 
 
-def handle_image(detector: AFVIDDetector, file_bytes: bytes) -> None:
+def handle_image(
+    detector: AFVIDDetector,
+    file_bytes: bytes,
+    *,
+    include_aviation: bool,
+    include_boats: bool,
+    show_ignored: bool,
+) -> None:
     image = decode_image(file_bytes)
-    detections = detector.predict_image(image)
-    annotated = detector.annotate(image, detections)
+    result = detector.predict_image(
+        image,
+        include_aviation=include_aviation,
+        include_boats=include_boats,
+        log_ignored=show_ignored,
+    )
+    annotated = detector.annotate(image, result.detections)
 
     st.subheader("Image Inference")
     col1, col2 = st.columns(2)
     with col1:
         st.caption("Original")
-        st.image(bgr_to_rgb(image), channels="RGB", use_column_width=True)
+        st.image(bgr_to_rgb(image), channels="RGB", use_container_width=True)
     with col2:
         st.caption("Annotated")
-        st.image(bgr_to_rgb(annotated), channels="RGB", use_column_width=True)
+        st.image(bgr_to_rgb(annotated), channels="RGB", use_container_width=True)
 
-    log_rows = render_detection_log(detections, datetime.utcnow().isoformat())
+    log_rows = render_detection_log(result, datetime.utcnow().isoformat(), show_ignored)
     st.subheader("Detection Log")
     if log_rows:
         st.dataframe(log_rows, use_container_width=True, hide_index=True)
@@ -90,7 +122,14 @@ def handle_image(detector: AFVIDDetector, file_bytes: bytes) -> None:
         st.info("No detections above threshold.")
 
 
-def handle_video(detector: AFVIDDetector, file_bytes: bytes) -> None:
+def handle_video(
+    detector: AFVIDDetector,
+    file_bytes: bytes,
+    *,
+    include_aviation: bool,
+    include_boats: bool,
+    show_ignored: bool,
+) -> None:
     st.subheader("Video Inference")
     with tempfile.NamedTemporaryFile(delete=False, suffix=".mp4") as tmp_file:
         tmp_file.write(file_bytes)
@@ -118,12 +157,17 @@ def handle_video(detector: AFVIDDetector, file_bytes: bytes) -> None:
             frame_idx += 1
             continue
 
-        detections = detector.predict_image(frame)
+        result = detector.predict_image(
+            frame,
+            include_aviation=include_aviation,
+            include_boats=include_boats,
+            log_ignored=show_ignored,
+        )
         if annotated_preview is None:
-            annotated_preview = detector.annotate(frame, detections)
+            annotated_preview = detector.annotate(frame, result.detections)
             preview_frame = frame.copy()
 
-        aggregated_logs.extend(render_detection_log(detections, frame_idx))
+        aggregated_logs.extend(render_detection_log(result, frame_idx, show_ignored))
         processed_frames += 1
         frame_idx += 1
         progress.progress(min(processed_frames / MAX_FRAMES, 1.0))
@@ -135,10 +179,10 @@ def handle_video(detector: AFVIDDetector, file_bytes: bytes) -> None:
         col1, col2 = st.columns(2)
         with col1:
             st.caption("Representative Frame (Original)")
-            st.image(bgr_to_rgb(preview_frame), channels="RGB", use_column_width=True)
+            st.image(bgr_to_rgb(preview_frame), channels="RGB", use_container_width=True)
         with col2:
             st.caption("Annotated Preview")
-            st.image(bgr_to_rgb(annotated_preview), channels="RGB", use_column_width=True)
+            st.image(bgr_to_rgb(annotated_preview), channels="RGB", use_container_width=True)
     else:
         st.info("No frames processed.")
 
@@ -150,9 +194,9 @@ def handle_video(detector: AFVIDDetector, file_bytes: bytes) -> None:
 
 
 def main() -> None:
-    st.set_page_config(page_title="Project AFVID — Armored Fighting Vehicle ID", layout="wide")
+    st.set_page_config(page_title="Project AFVID - Armored Fighting Vehicle ID", layout="wide")
     st.title("Project AFVID")
-    st.caption("Armored Fighting Vehicle Identification — perception demo")
+    st.caption("Armored Fighting Vehicle Identification perception demo")
 
     st.sidebar.header("Model Controls")
     weights_path = st.sidebar.text_input("YOLO Weights", value=config.MODEL.weights_path)
@@ -165,6 +209,25 @@ def main() -> None:
     )
 
     detector = load_detector(weights_path, conf_threshold)
+    st.sidebar.subheader("Mode")
+    st.sidebar.write(f"Auto-detected: `{detector.mode}`")
+    include_aviation = st.sidebar.checkbox(
+        "Include aviation classes in COCO demo mode",
+        value=False,
+        help="Maps airplane/helicopter to mil_rotary_unknown when enabled (COCO demo mode only).",
+        disabled=detector.mode == "afvid",
+    )
+    include_boats = st.sidebar.checkbox(
+        "Include boats in COCO demo mode",
+        value=False,
+        help="Maps boat to a civilian fallback when enabled (COCO demo mode only).",
+        disabled=detector.mode == "afvid",
+    )
+    show_ignored = st.sidebar.checkbox(
+        "Show ignored classes in log (debug)",
+        value=False,
+        help="Adds rows for detections filtered out by mapping rules.",
+    )
 
     uploaded = st.file_uploader("Upload imagery", type=["jpg", "jpeg", "png", "bmp", "mp4", "mov", "avi"])
     if uploaded is None:
@@ -173,9 +236,21 @@ def main() -> None:
 
     file_bytes = uploaded.read()
     if uploaded.type.startswith("image/"):
-        handle_image(detector, file_bytes)
+        handle_image(
+            detector,
+            file_bytes,
+            include_aviation=include_aviation,
+            include_boats=include_boats,
+            show_ignored=show_ignored,
+        )
     else:
-        handle_video(detector, file_bytes)
+        handle_video(
+            detector,
+            file_bytes,
+            include_aviation=include_aviation,
+            include_boats=include_boats,
+            show_ignored=show_ignored,
+        )
 
 
 if __name__ == "__main__":

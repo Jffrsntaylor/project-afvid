@@ -1,0 +1,13 @@
+﻿civ_sedan
+civ_truck
+civ_motorcycle
+mil_t90
+mil_bmp3
+mil_btr80
+mil_ka52
+mil_leopard2
+mil_bradley
+mil_tank_unknown
+mil_ifv_unknown
+mil_apc_unknown
+mil_rotary_unknown

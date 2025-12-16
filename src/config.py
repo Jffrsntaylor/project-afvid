@@ -1,36 +1,30 @@
 """
 Project AFVID configuration.
 
-This module is the single source of truth for:
+This module stays model-agnostic by centralizing:
 - model loading parameters
 - class metadata (category, nation-of-origin, threat/friendly semantics)
 - display rules (label formatting and colors)
 - dataset definitions used for training custom AFVID weights
 
-All perception logic consumes this config so the system stays model-agnostic and
-can be re-pointed to a custom-trained AFVID dataset without touching detector or UI code.
+Class IDs and names are defined exclusively in src/schema.py.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Tuple, Literal
+from typing import Dict, Tuple
 
-# Semantic enums kept lightweight to remain easily serializable.
-CategoryType = Literal["Civilian", "Military"]
-ThreatStatusType = Literal["Threat", "Friendly"]
+# Canonical schema (single source of truth for class IDs and metadata)
+try:  # pragma: no cover - import shim for package vs. module usage
+    from . import schema  # type: ignore
+except ImportError:  # pragma: no cover
+    import schema  # type: ignore
 
-
-@dataclass(frozen=True)
-class VehicleMetadata:
-    """Semantic enrichment for a single model class."""
-
-    model_label: str  # label as produced by the YOLO model
-    display_name: str  # human-readable label for UI
-    category: CategoryType
-    nation_of_origin: str
-    threat_status: ThreatStatusType
+CategoryType = schema.CategoryType
+ThreatStatusType = schema.ThreatStatusType
+VehicleMetadata = schema.VehicleMetadata
 
 
 @dataclass(frozen=True)
@@ -71,10 +65,11 @@ MODEL = ModelConfig(
 # --------------------------------------------------------------------------- #
 # Class metadata
 # --------------------------------------------------------------------------- #
-# Keys match model output labels. For COCO placeholder weights we map the vehicle
-# classes that exist; additional AFV classes are included for custom AFVID weights.
-CLASS_METADATA: Dict[str, VehicleMetadata] = {
-    # Civilian traffic (COCO-aligned labels)
+# Canonical AFVID metadata (single source of truth is schema.py)
+AFVID_CLASS_METADATA: Dict[str, VehicleMetadata] = schema.CLASS_METADATA
+
+# COCO-aligned metadata preserved for demo compatibility with public weights.
+BASELINE_COCO_METADATA: Dict[str, VehicleMetadata] = {
     "car": VehicleMetadata(
         model_label="car",
         display_name="Sedan",
@@ -103,71 +98,10 @@ CLASS_METADATA: Dict[str, VehicleMetadata] = {
         nation_of_origin="Various",
         threat_status="Friendly",
     ),
-    # Military platforms (AFVID-focused classes; use with custom weights)
-    "t90": VehicleMetadata(
-        model_label="t90",
-        display_name="T-90",
-        category="Military",
-        nation_of_origin="Russia",
-        threat_status="Threat",
-    ),
-    "t72": VehicleMetadata(
-        model_label="t72",
-        display_name="T-72",
-        category="Military",
-        nation_of_origin="Russia",
-        threat_status="Threat",
-    ),
-    "bmp2": VehicleMetadata(
-        model_label="bmp2",
-        display_name="BMP-2",
-        category="Military",
-        nation_of_origin="Russia",
-        threat_status="Threat",
-    ),
-    "btr80": VehicleMetadata(
-        model_label="btr80",
-        display_name="BTR-80",
-        category="Military",
-        nation_of_origin="Russia",
-        threat_status="Threat",
-    ),
-    "m2_bradley": VehicleMetadata(
-        model_label="m2_bradley",
-        display_name="M2 Bradley",
-        category="Military",
-        nation_of_origin="USA",
-        threat_status="Friendly",
-    ),
-    "leopard2": VehicleMetadata(
-        model_label="leopard2",
-        display_name="Leopard 2",
-        category="Military",
-        nation_of_origin="Germany",
-        threat_status="Friendly",
-    ),
-    "challenger2": VehicleMetadata(
-        model_label="challenger2",
-        display_name="Challenger 2",
-        category="Military",
-        nation_of_origin="UK",
-        threat_status="Friendly",
-    ),
-    "puma_ifv": VehicleMetadata(
-        model_label="puma_ifv",
-        display_name="Puma IFV",
-        category="Military",
-        nation_of_origin="Germany",
-        threat_status="Friendly",
-    ),
-    "cv90": VehicleMetadata(
-        model_label="cv90",
-        display_name="CV90",
-        category="Military",
-        nation_of_origin="Sweden",
-        threat_status="Friendly",
-    ),
 }
+
+# Combined metadata used by the detector; canonical AFVID classes plus COCO demo support.
+CLASS_METADATA: Dict[str, VehicleMetadata] = {**BASELINE_COCO_METADATA, **AFVID_CLASS_METADATA}
 
 # --------------------------------------------------------------------------- #
 # Display rules
@@ -217,22 +151,9 @@ def format_label(metadata: VehicleMetadata, confidence: float | None = None) -> 
 # Dataset config (placeholder values for custom AFVID training)
 # --------------------------------------------------------------------------- #
 DATASET = DatasetConfig(
-    train="data/afvid/train/images",
-    val="data/afvid/val/images",
-    names={
-        0: "civilian_truck",
-        1: "sedan",
-        2: "motorcycle",
-        3: "t90",
-        4: "t72",
-        5: "bmp2",
-        6: "btr80",
-        7: "m2_bradley",
-        8: "leopard2",
-        9: "challenger2",
-        10: "puma_ifv",
-        11: "cv90",
-    },
+    train="data/afvid/images/train",
+    val="data/afvid/images/val",
+    names=dict(schema.CLASS_ID_MAP),
 )
 
 
