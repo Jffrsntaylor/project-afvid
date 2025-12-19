@@ -1,6 +1,8 @@
 # Project AFVID — Armored Fighting Vehicle Identification
 Computer-vision replacement for traditional AFVID silhouette flashcards. Built as a defense-grade prototype to augment human operators with reliable, config-driven perception.
 
+![Test image one](test_1.png)
+
 ## Mission
 Project AFVID is a prototype force protection / situational awareness module that distinguishes civilian traffic from armored fighting vehicles, enriches detections with nation-of-origin metadata, and surfaces threat vs. friendly context to reduce cognitive load and prevent misidentification.
 
